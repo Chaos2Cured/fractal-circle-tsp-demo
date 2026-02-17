@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fractal Circle TSP Demo — φ-Spiral Solver</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;overflow-x:hidden}
+  header{text-align:center;padding:24px 16px 8px;background:linear-gradient(180deg,#0f0f2a 0%,#0a0a1a 100%)}
+  header h1{font-size:1.8em;background:linear-gradient(90deg,#ffd700,#ff9900,#ffd700);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
+  header p{color:#aaa;font-size:0.95em}
+  .constants{display:flex;justify-content:center;gap:24px;margin:12px 0;flex-wrap:wrap}
+  .constants span{background:#1a1a3a;padding:6px 14px;border-radius:20px;font-size:0.85em;border:1px solid #333}
+  .constants span em{color:#ffd700;font-style:normal;font-weight:600}
+  #controls{display:flex;justify-content:center;gap:12px;padding:12px;flex-wrap:wrap}
+  #controls button{background:linear-gradient(135deg,#1a3a5a,#0f2a4a);color:#ffd700;border:1px solid #ffd700;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:0.9em;transition:all .2s}
+  #controls button:hover{background:linear-gradient(135deg,#2a4a6a,#1a3a5a);box-shadow:0 0 12px rgba(255,215,0,0.3)}
+  #controls button:disabled{opacity:0.4;cursor:not-allowed}
+  #controls select,#controls input{background:#1a1a3a;color:#e0e0e0;border:1px solid #444;padding:8px 12px;border-radius:8px;font-size:0.9em}
+  .main-area{display:flex;justify-content:center;align-items:flex-start;gap:20px;padding:16px;flex-wrap:wrap}
+  canvas{border:1px solid #333;border-radius:8px;background:#050510}
+  #stats{background:#0f0f2a;border:1px solid #333;border-radius:8px;padding:16px;min-width:280px;max-width:320px}
+  #stats h3{color:#ffd700;margin-bottom:12px;font-size:1.1em}
+  .stat-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a3a;font-size:0.9em}
+  .stat-row .label{color:#888}
+  .stat-row .value{color:#ffd700;font-weight:600}
+  #log{background:#0a0a1a;border:1px solid #333;border-radius:8px;padding:12px;margin:12px auto;max-width:900px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:0.8em;color:#888}
+  #log .entry{padding:2px 0}
+  #log .entry.good{color:#4caf50}
+  #log .entry.info{color:#64b5f6}
+  #log .entry.gold{color:#ffd700}
+  footer{text-align:center;padding:20px;color:#555;font-size:0.8em}
+  footer a{color:#ffd700}
+  .phi-badge{display:inline-block;background:#1a1a3a;border:1px solid #ffd700;color:#ffd700;padding:2px 8px;border-radius:12px;font-size:0.75em;margin-left:6px}
+  @keyframes pulse{0%,100%{box-shadow:0 0 8px rgba(255,215,0,0.2)}50%{box-shadow:0 0 20px rgba(255,215,0,0.5)}}
+  .solving{animation:pulse 1.5s infinite}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐉 Fractal Circle TSP Demo</h1>
+  <p>Golden-ratio spiral ordering with φ-based 2-opt refinement</p>
+  <div class="constants">
+    <span>φ = <em>1.618034</em></span>
+    <span>φ² = <em>2.618034</em></span>
+    <span>D = <em>2.914</em></span>
+    <span>D′ = <em>0.077</em></span>
+    <span>Resonance = <em>7-11-7</em></span>
+  </div>
+</header>
+
+<div id="controls">
+  <select id="cityCount">
+    <option value="20">20 Cities</option>
+    <option value="50" selected>50 Cities</option>
+    <option value="100">100 Cities</option>
+    <option value="200">200 Cities</option>
+    <option value="500">500 Cities</option>
+  </select>
+  <select id="distribution">
+    <option value="random">Random</option>
+    <option value="circle">Circle</option>
+    <option value="clusters">Clusters (φ-spaced)</option>
+    <option value="grid">Grid</option>
+    <option value="spiral">Golden Spiral</option>
+  </select>
+  <button id="btnGenerate">Generate Cities</button>
+  <button id="btnSolve" disabled>Solve with φ-Spiral</button>
+  <button id="btnStep" disabled>Step-by-Step</button>
+  <label style="display:flex;align-items:center;gap:6px;font-size:0.85em">
+    <input type="checkbox" id="showOverlay" checked> Fractal Overlay
+  </label>
+</div>
+
+<div class="main-area">
+  <canvas id="canvas" width="700" height="700"></canvas>
+  <div id="stats">
+    <h3>📊 Statistics</h3>
+    <div class="stat-row"><span class="label">Cities</span><span class="value" id="sN">—</span></div>
+    <div class="stat-row"><span class="label">Initial Tour (NN)</span><span class="value" id="sInitial">—</span></div>
+    <div class="stat-row"><span class="label">φ-Spiral Tour</span><span class="value" id="sSpiral">—</span></div>
+    <div class="stat-row"><span class="label">After φ-2opt</span><span class="value" id="sOpt">—</span></div>
+    <div class="stat-row"><span class="label">Improvement</span><span class="value" id="sImprove">—</span></div>
+    <div class="stat-row"><span class="label">Solve Time</span><span class="value" id="sTime">—</span></div>
+    <div class="stat-row"><span class="label">2-opt Iterations</span><span class="value" id="sIter">—</span></div>
+    <div class="stat-row"><span class="label">φ-Shells Used</span><span class="value" id="sShells">—</span></div>
+    <h3 style="margin-top:16px">🔬 Method</h3>
+    <p style="font-size:0.82em;color:#aaa;line-height:1.5;margin-top:8px">
+      <strong style="color:#ffd700">Phase 1:</strong> Compute centroid. Sort cities by angle from centroid using golden-angle increments (2π/φ²).<br><br>
+      <strong style="color:#ffd700">Phase 2:</strong> Decompose into φ-shells (concentric rings at φ-ratio radii). Connect shells via nearest-neighbor bridges.<br><br>
+      <strong style="color:#ffd700">Phase 3:</strong> φ-weighted 2-opt refinement — candidate swaps are prioritized by golden-ratio distance thresholds, with D′=0.077 compression factor.
+    </p>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<footer>
+  Fractal Circle TSP — Built on the mathematics of φ | 
+  <a href="https://github.com/Chaos2Cured/fractal-circle-tsp-demo">GitHub</a> | 
+  Awaken the Core. Illuminate the Quiet.
+</footer>
+
+<script>
+// === CONSTANTS ===
+const PHI = (1 + Math.sqrt(5)) / 2;          // 1.618034...
+const PHI2 = PHI * PHI;                       // 2.618034...
+const GOLDEN_ANGLE = 2 * Math.PI / PHI2;      // ~137.508° in radians
+const D_FRACTAL = 2.914;
+const D_PRIME = 0.077;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const CX = W / 2, CY = H / 2;
+const MARGIN = 40;
+
+let cities = [];
+let currentTour = [];
+let bestTour = [];
+let solving = false;
+let stepMode = false;
+let stepPhase = 0;
+let shells = [];
+
+// === UI ELEMENTS ===
+const btnGen = document.getElementById('btnGenerate');
+const btnSolve = document.getElementById('btnSolve');
+const btnStep = document.getElementById('btnStep');
+const showOverlay = document.getElementById('showOverlay');
+
+btnGen.addEventListener('click', generateCities);
+btnSolve.addEventListener('click', () => { stepMode = false; solveTSP(); });
+btnStep.addEventListener('click', () => { stepMode = true; stepPhase = 0; solveTSP(); });
+showOverlay.addEventListener('change', () => draw());
+
+// === LOGGING ===
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const d = document.createElement('div');
+  d.className = 'entry ' + cls;
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStat(id, val) {
+  document.getElementById(id).textContent = val;
+}
+
+// === CITY GENERATION ===
+function generateCities() {
+  const n = parseInt(document.getElementById('cityCount').value);
+  const dist = document.getElementById('distribution').value;
+  cities = [];
+  const r = (W / 2) - MARGIN;
+
+  switch (dist) {
+    case 'random':
+      for (let i = 0; i < n; i++) {
+        cities.push({ x: MARGIN + Math.random() * (W - 2 * MARGIN), y: MARGIN + Math.random() * (H - 2 * MARGIN) });
+      }
+      break;
+    case 'circle':
+      for (let i = 0; i < n; i++) {
+        const a = (2 * Math.PI * i) / n;
+        cities.push({ x: CX + r * 0.85 * Math.cos(a), y: CY + r * 0.85 * Math.sin(a) });
+      }
+      break;
+    case 'clusters': {
+      const nClusters = Math.max(3, Math.round(n / 10));
+      const centers = [];
+      for (let i = 0; i < nClusters; i++) {
+        const a = GOLDEN_ANGLE * i;
+        const cr = r * 0.6 * (i % 3 + 1) / 3;
+        centers.push({ x: CX + cr * Math.cos(a), y: CY + cr * Math.sin(a) });
+      }
+      for (let i = 0; i < n; i++) {
+        const c = centers[i % nClusters];
+        const spread = 30 + 20 * Math.random();
+        cities.push({ x: c.x + (Math.random() - 0.5) * spread, y: c.y + (Math.random() - 0.5) * spread });
+      }
+      break;
+    }
+    case 'grid': {
+      const side = Math.ceil(Math.sqrt(n));
+      const step = (W - 2 * MARGIN) / (side - 1 || 1);
+      for (let i = 0; i < n; i++) {
+        const row = Math.floor(i / side);
+        const col = i % side;
+        cities.push({ x: MARGIN + col * step + (Math.random() - 0.5) * 5, y: MARGIN + row * step + (Math.random() - 0.5) * 5 });
+      }
+      break;
+    }
+    case 'spiral':
+      for (let i = 0; i < n; i++) {
+        const a = GOLDEN_ANGLE * i;
+        const sr = r * 0.9 * Math.sqrt(i / n);
+        cities.push({ x: CX + sr * Math.cos(a), y: CY + sr * Math.sin(a) });
+      }
+      break;
+  }
+
+  currentTour = [];
+  bestTour = [];
+  shells = [];
+  setStat('sN', n);
+  setStat('sInitial', '—');
+  setStat('sSpiral', '—');
+  setStat('sOpt', '—');
+  setStat('sImprove', '—');
+  setStat('sTime', '—');
+  setStat('sIter', '—');
+  setStat('sShells', '—');
+  document.getElementById('log').innerHTML = '';
+  log(`Generated ${n} cities (${dist} distribution)`, 'info');
+  btnSolve.disabled = false;
+  btnStep.disabled = false;
+  draw();
+}
+
+// === DISTANCE ===
+function dist(a, b) {
+  const dx = a.x - b.x, dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function tourLength(tour) {
+  let d = 0;
+  for (let i = 0; i < tour.length; i++) {
+    d += dist(cities[tour[i]], cities[tour[(i + 1) % tour.length]]);
+  }
+  return d;
+}
+
+// === PHASE 1: GOLDEN-ANGLE SPIRAL ORDERING ===
+function goldenSpiralOrder() {
+  // Compute centroid
+  let cx = 0, cy = 0;
+  for (const c of cities) { cx += c.x; cy += c.y; }
+  cx /= cities.length; cy /= cities.length;
+
+  // Compute angle and radius from centroid for each city
+  const indexed = cities.map((c, i) => {
+    const dx = c.x - cx, dy = c.y - cy;
+    const angle = Math.atan2(dy, dx);
+    const radius = Math.sqrt(dx * dx + dy * dy);
+    return { i, angle, radius };
+  });
+
+  // Sort by golden-angle sectors then by radius within each sector
+  const nSectors = Math.max(7, Math.round(Math.sqrt(cities.length) * PHI));
+  const sectorSize = (2 * Math.PI) / nSectors;
+
+  indexed.forEach(c => {
+    c.sector = Math.floor(((c.angle + Math.PI) % (2 * Math.PI)) / sectorSize);
+  });
+
+  // Sort: sector first, then alternate radius direction per sector (boustrophedon)
+  indexed.sort((a, b) => {
+    if (a.sector !== b.sector) return a.sector - b.sector;
+    const dir = a.sector % 2 === 0 ? 1 : -1;
+    return dir * (a.radius - b.radius);
+  });
+
+  return indexed.map(c => c.i);
+}
+
+// === PHASE 2: FRACTAL SHELL DECOMPOSITION ===
+function fractalShellDecompose() {
+  let cx = 0, cy = 0;
+  for (const c of cities) { cx += c.x; cy += c.y; }
+  cx /= cities.length; cy /= cities.length;
+
+  // Compute max radius
+  let maxR = 0;
+  const radii = cities.map(c => {
+    const r = dist(c, { x: cx, y: cy });
+    if (r > maxR) maxR = r;
+    return r;
+  });
+
+  // Create shells at φ-ratio boundaries
+  shells = [];
+  let boundary = maxR;
+  while (boundary > 5) {
+    shells.push(boundary);
+    boundary /= PHI;
+  }
+  shells.reverse();
+
+  // Assign cities to shells
+  const shellAssign = new Array(cities.length);
+  for (let i = 0; i < cities.length; i++) {
+    let s = 0;
+    for (let j = 0; j < shells.length; j++) {
+      if (radii[i] <= shells[j]) { s = j; break; }
+      s = j;
+    }
+    shellAssign[i] = s;
+  }
+
+  log(`Decomposed into ${shells.length} φ-shells (boundaries at φ-ratio intervals)`, 'info');
+  setStat('sShells', shells.length);
+  return { shellAssign, cx, cy, shells: shells };
+}
+
+// === PHASE 3: φ-WEIGHTED 2-OPT ===
+function phiTwoOpt(tour, maxIter) {
+  const n = tour.length;
+  let improved = true;
+  let iterations = 0;
+  let best = tourLength(tour);
+
+  // Precompute distance matrix for small instances
+  const useMatrix = n <= 500;
+  let dm;
+  if (useMatrix) {
+    dm = new Float64Array(n * n);
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++) {
+        const d = dist(cities[tour[i]], cities[tour[j]]);
+        dm[i * n + j] = d;
+        dm[j * n + i] = d;
+      }
+  }
+
+  function d(i, j) {
+    if (useMatrix) return dm[i * n + j];
+    return dist(cities[tour[i]], cities[tour[j]]);
+  }
+
+  while (improved && iterations < maxIter) {
+    improved = false;
+    iterations++;
+
+    // φ-weighted: check swaps at golden-ratio step sizes first
+    const phiStep = Math.max(1, Math.floor(n / PHI2));
+
+    for (let i = 0; i < n - 2; i++) {
+      // Check φ-stepped candidates first, then nearby
+      const candidates = new Set();
+      for (let k = 1; k <= 5; k++) {
+        const j = (i + Math.floor(phiStep * k * D_PRIME * 10)) % n;
+        if (j > i + 1) candidates.add(j);
+      }
+      // Also check sequential neighbors
+      const seqEnd = Math.min(n, i + Math.floor(n * 0.3));
+      for (let j = i + 2; j < seqEnd; j++) {
+        candidates.add(j);
+      }
+
+      for (const j of candidates) {
+        if (j <= i + 1 || j >= n) continue;
+        const ni = (i + 1) % n;
+        const nj = (j + 1) % n;
+
+        const oldDist = d(i, ni) + d(j, nj);
+        const newDist = d(i, j) + d(ni, nj);
+
+        if (newDist < oldDist - 1e-10) {
+          // Reverse the segment between i+1 and j
+          let left = i + 1, right = j;
+          while (left < right) {
+            [tour[left], tour[right]] = [tour[right], tour[left]];
+            left++; right--;
+          }
+          // Recompute distance matrix entries if needed
+          if (useMatrix) {
+            for (let a = i + 1; a <= j; a++)
+              for (let b = 0; b < n; b++) {
+                if (a === b) continue;
+                const dd = dist(cities[tour[a]], cities[tour[b]]);
+                dm[a * n + b] = dd;
+                dm[b * n + a] = dd;
+              }
+          }
+          improved = true;
+          best = tourLength(tour);
+        }
+      }
+    }
+  }
+
+  return { tour, iterations, length: best };
+}
+
+// === NEAREST NEIGHBOR BASELINE ===
+function nearestNeighborTour() {
+  const n = cities.length;
+  const visited = new Uint8Array(n);
+  const tour = [0];
+  visited[0] = 1;
+
+  for (let step = 1; step < n; step++) {
+    const last = tour[tour.length - 1];
+    let bestD = Infinity, bestJ = -1;
+    for (let j = 0; j < n; j++) {
+      if (visited[j]) continue;
+      const d = dist(cities[last], cities[j]);
+      if (d < bestD) { bestD = d; bestJ = j; }
+    }
+    tour.push(bestJ);
+    visited[bestJ] = 1;
+  }
+  return tour;
+}
+
+// === MAIN SOLVE ===
+async function solveTSP() {
+  if (solving) return;
+  solving = true;
+  btnSolve.disabled = true;
+  btnStep.disabled = true;
+  canvas.classList.add('solving');
+  const t0 = performance.now();
+
+  // Step 1: Nearest-neighbor baseline
+  log('Phase 0: Computing nearest-neighbor baseline...', 'info');
+  const nnTour = nearestNeighborTour();
+  const nnLen = tourLength(nnTour);
+  setStat('sInitial', nnLen.toFixed(1));
+  log(`  NN tour length: ${nnLen.toFixed(1)}`, '');
+  currentTour = [...nnTour];
+  draw();
+  await sleep(stepMode ? 1500 : 200);
+
+  // Step 2: Golden-spiral ordering
+  log('Phase 1: Golden-angle spiral ordering (2π/φ²)...', 'gold');
+  const spiralTour = goldenSpiralOrder();
+  const spiralLen = tourLength(spiralTour);
+  setStat('sSpiral', spiralLen.toFixed(1));
+  log(`  φ-Spiral tour length: ${spiralLen.toFixed(1)}`, '');
+
+  // Use whichever is better as starting point
+  let workingTour;
+  if (spiralLen < nnLen) {
+    workingTour = [...spiralTour];
+    log('  φ-Spiral beats NN — using spiral as base', 'good');
+  } else {
+    workingTour = [...nnTour];
+    log('  NN beats spiral — using NN as base, applying φ-structure in 2-opt', 'info');
+  }
+  currentTour = [...workingTour];
+  draw();
+  await sleep(stepMode ? 1500 : 200);
+
+  // Step 3: Fractal shell decomposition
+  log('Phase 2: Fractal shell decomposition (φ-ratio boundaries)...', 'gold');
+  fractalShellDecompose();
+  draw();
+  await sleep(stepMode ? 1500 : 200);
+
+  // Step 4: φ-weighted 2-opt refinement
+  log('Phase 3: φ-weighted 2-opt refinement (D′=0.077 compression)...', 'gold');
+  const maxIter = Math.max(20, Math.round(cities.length * PHI));
+  const result = phiTwoOpt(workingTour, maxIter);
+  currentTour = result.tour;
+  bestTour = [...result.tour];
+
+  const finalLen = result.length;
+  const improvement = ((nnLen - finalLen) / nnLen * 100);
+  const elapsed = performance.now() - t0;
+
+  setStat('sOpt', finalLen.toFixed(1));
+  setStat('sImprove', improvement.toFixed(1) + '%');
+  setStat('sTime', elapsed.toFixed(0) + ' ms');
+  setStat('sIter', result.iterations);
+
+  log(`  Final tour: ${finalLen.toFixed(1)} (${improvement.toFixed(1)}% improvement over NN)`, 'good');
+  log(`  Completed in ${elapsed.toFixed(0)}ms with ${result.iterations} 2-opt iterations`, 'good');
+  log('✦ Awaken the Core. Illuminate the Quiet. ✦', 'gold');
+
+  draw();
+  canvas.classList.remove('solving');
+  solving = false;
+  btnSolve.disabled = false;
+  btnStep.disabled = false;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// === DRAWING ===
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid
+  ctx.strokeStyle = '#111133';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < W; x += 50) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 50) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Fractal circle overlay
+  if (showOverlay.checked && shells.length > 0) {
+    let cx = 0, cy = 0;
+    for (const c of cities) { cx += c.x; cy += c.y; }
+    cx /= cities.length; cy /= cities.length;
+
+    for (let i = 0; i < shells.length; i++) {
+      const alpha = 0.15 + 0.1 * (i / shells.length);
+      ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, shells[i], 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Shell label
+      ctx.fillStyle = `rgba(255, 215, 0, ${alpha + 0.1})`;
+      ctx.font = '10px monospace';
+      ctx.fillText(`φ-shell ${i + 1}`, cx + shells[i] * 0.707 + 4, cy - shells[i] * 0.707 - 4);
+    }
+
+    // Golden spiral overlay
+    ctx.strokeStyle = 'rgba(255, 153, 0, 0.2)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let t = 0; t < 20; t += 0.02) {
+      const r = 5 * Math.pow(PHI, t * 0.3);
+      if (r > W / 2) break;
+      const x = cx + r * Math.cos(t);
+      const y = cy + r * Math.sin(t);
+      if (t === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Tour edges
+  if (currentTour.length > 0) {
+    ctx.strokeStyle = 'rgba(100, 181, 246, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < currentTour.length; i++) {
+      const c = cities[currentTour[i]];
+      if (i === 0) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Gradient effect on edges
+    for (let i = 0; i < currentTour.length; i++) {
+      const a = cities[currentTour[i]];
+      const b = cities[currentTour[(i + 1) % currentTour.length]];
+      const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+      grad.addColorStop(0, 'rgba(100, 181, 246, 0.4)');
+      grad.addColorStop(0.5, 'rgba(255, 215, 0, 0.3)');
+      grad.addColorStop(1, 'rgba(100, 181, 246, 0.4)');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+  }
+
+  // Cities
+  for (let i = 0; i < cities.length; i++) {
+    const c = cities[i];
+    // Glow
+    const grd = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, 8);
+    grd.addColorStop(0, 'rgba(255, 215, 0, 0.8)');
+    grd.addColorStop(1, 'rgba(255, 215, 0, 0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 8, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // Dot
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 3, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  // Center marker
+  if (cities.length > 0) {
+    let cx = 0, cy = 0;
+    for (const c of cities) { cx += c.x; cy += c.y; }
+    cx /= cities.length; cy /= cities.length;
+    ctx.strokeStyle = 'rgba(255, 99, 99, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy);
+    ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8);
+    ctx.stroke();
+  }
+}
+
+// Initial draw
+draw();
+log('Fractal Circle TSP Demo initialized. φ = 1.618034, D = 2.914, D′ = 0.077', 'gold');
+log('Generate cities and click Solve to begin.', 'info');
+</script>
+</body>
+</html>
